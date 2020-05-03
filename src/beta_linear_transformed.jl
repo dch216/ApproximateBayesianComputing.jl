@@ -4,7 +4,7 @@ module TransformedBetaDistributions
 
 
 if VERSION >= v"0.7"
-  using Statistics
+  #using Statistics
   using Distributed
   import Statistics: mean, median, maximum, minimum, quantile, std, var, cov, cor
 else
@@ -15,21 +15,22 @@ else
 end
 
 import Base.length, Base.show
-using Distributions 
+using Distributions
 import Distributions.params, Distributions.@check_args
-import Distributions.rand 
+import Distributions.rand
 import Distributions.pdf, Distributions.logpdf, Distributions.cdf, Distributions.gradlogpdf
 import Distributions.quantile, Distributions.insupport
 import Distributions.minimum, Distributions.maximum
-import Distributions.mean, Distributions.var 
-import Distributions.mode, Distributions.modes 
+import Distributions.mean, Distributions.var
+import Distributions.mode, Distributions.modes
+import Random.AbstractRNG
 
 export LinearTransformedBeta
 export params, rand, pdf, logpdf, cdf, gradlogpdf, quantile, insupport
 export minimum, maximum, mean, var, mode, modes
 
 
-struct LinearTransformedBeta{T<:Real} <: ContinuousUnivariateDistribution 
+struct LinearTransformedBeta{T<:Real} <: ContinuousUnivariateDistribution
     dist::Beta{T}
     xmin::T
     xmax::T
@@ -58,13 +59,14 @@ params(d::LinearTransformedBeta) = (d.dist.α, d.dist.β,d.xmin,d.xmax)
 
 ### Sampling
 rand(d::LinearTransformedBeta) = d.xmin+(d.xmax-d.xmin)*rand(d.dist)
+rand(rng::AbstractRNG, d::LinearTransformedBeta) = d.xmin+(d.xmax-d.xmin)*rand(rng,d.dist)
 #sampler
 
-### Evaluation 
+### Evaluation
 pdf(d::LinearTransformedBeta, x::T) where T<:Real = pdf(d.dist, (x.-d.xmin)./(d.xmax-d.xmin) )
 logpdf(d::LinearTransformedBeta, x::T) where T<:Real = logpdf(d.dist, (x.-d.xmin)./(d.xmax-d.xmin) )
-cdf(d::LinearTransformedBeta, q::T) where T<:Real = cdf(d.dist, (x.-d.xmin)./(d.xmax-d.xmin) )
-quantile(d::LinearTransformedBeta, q::T) where T<:Real = quantile(d.dist, (x.-d.xmin)./(d.xmax-d.xmin) )
+cdf(d::LinearTransformedBeta, q::T) where T<:Real = cdf(d.dist, (q.-d.xmin)./(d.xmax-d.xmin) )
+quantile(d::LinearTransformedBeta, q::T) where T<:Real = quantile(d.dist, (q.-d.xmin)./(d.xmax-d.xmin) )
 minimum(d::LinearTransformedBeta) = d.xmin
 maximum(d::LinearTransformedBeta) = d.xmax
 
@@ -80,6 +82,7 @@ end
 
 ### Basic statistics
 mean(d::LinearTransformedBeta) = d.xmin+(d.xmax-d.xmin)*mean(d.dist)
+std(d::LinearTransformedBeta) = (d.xmax-d.xmin)*std(d.dist)
 var(d::LinearTransformedBeta) = (d.xmax-d.xmin)^2*var(d.dist)
 mode(d::LinearTransformedBeta) = d.xmin+(d.xmax-d.xmin)*mode(d.dist)
 modes(d::LinearTransformedBeta) = d.xmin.+(d.xmax-d.xmin).*modes(d.dist)
@@ -94,7 +97,8 @@ modes(d::LinearTransformedBeta) = d.xmin.+(d.xmax-d.xmin).*modes(d.dist)
 
 distrname(d::LinearTransformedBeta) = "LinearTransformedBeta"
 function Base.show(io::IO, d::LinearTransformedBeta)
-  show(io,distrname(d) * "(α=" * string(d.dist.α) * ", β=" * string(d.dist.β) * ", min=" * string(d.xmin) * " ,max=" * string(d.xmax) * ")" )
+  show(io,distrname(d) * "(α=" * string(d.dist.α) * ", β=" * string(d.dist.β) * ", min=" * string(d.xmin) * " ,max=" * string(d.xmax) * ")" * ", mean=" * string(mean(d)) * " std=" * string(std(d)))
+  #d.xmin+(d.xmax-d.xmin)*d.dist.α/(d.dist.α+d.dist.β)) * ", std=" * string((d.xmax-d.xmin)*sqrt(d.dist.α*d.dist.β/(d.dist.α*d.dist.β)^2/(d.dist.α+d.dist.β+1))) )
 end
 
 end # module

@@ -1,18 +1,19 @@
 
 using Compat
-using PDMats
+#using PDMats
 using Distributions
 
 if VERSION >= v"0.7"
-  using Statistics
+  #using Statistics
   using Distributed
   import Statistics: mean, median, maximum, minimum, quantile, std, var, cov, cor
 else
   using Compat.Statistics
   using Compat.Distributed
-  import Base: mean, median, maximum, minimum, quantile, std, var, cov, cor
+  import Base: length, mean, median, maximum, minimum, quantile, std, var, cov, cor
 end
 
+import Distributions._logpdf
 
 #@compat abstract type GaussianMixtureModelCommonCovarAbstract <: Distribution end
 @compat abstract type GaussianMixtureModelCommonCovarAbstract  <: Distribution{Multivariate,Continuous} end
@@ -29,7 +30,7 @@ struct GaussianMixtureModelCommonCovar <: GaussianMixtureModelCommonCovarAbstrac
         end
 		if( size(ic,1) != size(ic,2) )
 		    error("covariance matrix must be square")
-		end 
+		end
 		if( size(m,1) != size(ic,1) )
 		    error("means and covar matrix not compatible sizes: ",size(m)," vs ",size(ic) )
 		end
@@ -47,8 +48,10 @@ struct GaussianMixtureModelCommonCovar <: GaussianMixtureModelCommonCovarAbstrac
 end
 
 function GaussianMixtureModelCommonCovar(m::Array{Float64,2}, p::Vector{Float64}, ic::AbstractMatrix)
-    GaussianMixtureModelCommonCovar(m,p,make_matrix_pd(ic))
+    GaussianMixtureModelCommonCovar(m,p,PDMat(make_matrix_pd(ic)))
 end
+
+length(d::GaussianMixtureModelCommonCovarAbstract) = size(d.mu,1)
 
 function mean(d::GaussianMixtureModelCommonCovarAbstract)
     np = size(d.mu,2)
@@ -59,7 +62,7 @@ function mean(d::GaussianMixtureModelCommonCovarAbstract)
     return m
 end
 
-function pdf(d::GaussianMixtureModelCommonCovar, x::Array{Float64,1} )
+function pdf(d::GaussianMixtureModelCommonCovar, x::AbstractArray{Float64,1} )
     p = 0.0
     for i in 1:length(d.probs)
         if d.probs[i]<=0.0 continue end
@@ -68,7 +71,7 @@ function pdf(d::GaussianMixtureModelCommonCovar, x::Array{Float64,1} )
     return p
 end
 
-function pdf(d::GaussianMixtureModelCommonCovar, x::Array{Float64,2} )
+function pdf(d::GaussianMixtureModelCommonCovar, x::AbstractArray{Float64,2} )
     np = size(x,2)
     p = zeros(np)
     for i in 1:length(d.probs)
@@ -78,7 +81,7 @@ function pdf(d::GaussianMixtureModelCommonCovar, x::Array{Float64,2} )
     return p
 end
 
-function logpdf(d::GaussianMixtureModelCommonCovar, x::Array{Float64,1})
+function _logpdf(d::GaussianMixtureModelCommonCovar, x::AbstractArray{Float64,1})
     logp = -Inf
     for i in 1:length(d.probs)
         if d.probs[i]<=0.0 continue end
@@ -88,7 +91,7 @@ function logpdf(d::GaussianMixtureModelCommonCovar, x::Array{Float64,1})
     return logp
 end
 
-function logpdf(d::GaussianMixtureModelCommonCovar, x::Array{Float64,2})
+function _logpdf(d::GaussianMixtureModelCommonCovar, x::AbstractArray{Float64,2})
     np = size(x,2)
     logp = fill(-Inf,np)
     for i in 1:length(d.probs)
@@ -120,7 +123,7 @@ struct GaussianMixtureModelCommonCovarTruncated <: GaussianMixtureModelCommonCov
         end
 		if( size(ic,1) != size(ic,2) )
 		    error("covariance matrix must be square")
-		end 
+		end
 		if( size(m,1) != size(ic,1) )
 		    error("means and covar matrix not compatible sizes: ",size(m)," vs ",size(ic) )
 		end
@@ -137,10 +140,12 @@ struct GaussianMixtureModelCommonCovarTruncated <: GaussianMixtureModelCommonCov
 end
 
 function GaussianMixtureModelCommonCovarTruncated(m::Array{Float64,2}, p::Vector{Float64}, ic::AbstractMatrix, mm::Float64)
-    GaussianMixtureModelCommonCovarTruncated(m, p, make_matrix_pd(ic), mm)
+    GaussianMixtureModelCommonCovarTruncated(m, p, PDMat(make_matrix_pd(ic)), mm)
 end
 
-function pdf(d::GaussianMixtureModelCommonCovarTruncated, x::Array{Float64,1} )
+length(d::GaussianMixtureModelCommonCovarTruncated) = size(d.mu,1)
+
+function pdf(d::GaussianMixtureModelCommonCovarTruncated, x::AbstractArray{Float64,1} )
     p = 0.0
     normalization = cdf(Distributions.Chisq(length(x)),d.max_mahalanobis)
     for i in 1:length(d.probs)
@@ -149,10 +154,10 @@ function pdf(d::GaussianMixtureModelCommonCovarTruncated, x::Array{Float64,1} )
         if sqmahal(di, x) > d.max_mahalanobis continue end
         p += Distributions.pdf(di, x ) * d.probs[i] / normalization
     end
-    return p  
+    return p
 end
 
-function pdf(d::GaussianMixtureModelCommonCovarTruncated, x::Array{Float64,2} )
+function pdf(d::GaussianMixtureModelCommonCovarTruncated, x::AbstractArray{Float64,2} )
     np = size(x,2)
     p = zeros(np)
     normalization = cdf(Distributions.Chisq(length(x)),d.max_mahalanobis)
@@ -164,7 +169,7 @@ function pdf(d::GaussianMixtureModelCommonCovarTruncated, x::Array{Float64,2} )
     return p
 end
 
-function logpdf(d::GaussianMixtureModelCommonCovarTruncated, x::Array{Float64,1})
+function _logpdf(d::GaussianMixtureModelCommonCovarTruncated, x::AbstractArray{Float64,1})
     logp = -Inf
     log_normalization = logcdf(Distributions.Chisq(length(x)),d.max_mahalanobis)
     for i in 1:length(d.probs)
@@ -177,7 +182,7 @@ function logpdf(d::GaussianMixtureModelCommonCovarTruncated, x::Array{Float64,1}
     return logp
 end
 
-function logpdf(d::GaussianMixtureModelCommonCovarTruncated, x::Array{Float64,2})
+function _logpdf(d::GaussianMixtureModelCommonCovarTruncated, x::AbstractArray{Float64,2})
     np = size(x,2)
     logp = fill(-Inf,np)
     log_normalization = logcdf(Distributions.Chisq(length(x)),d.max_mahalanobis)
@@ -222,7 +227,7 @@ struct GaussianMixtureModelCommonCovarSubset <: GaussianMixtureModelCommonCovarA
         end
 		if( size(ic,1) != size(ic,2) )
 		    error("covariance matrix must be square")
-		end 
+		end
         @assert(1<=length(pact)<=length(p))
         for idx in pact
             if ! (1<=idx<=length(p))
@@ -263,6 +268,8 @@ struct GaussianMixtureModelCommonCovarSubset <: GaussianMixtureModelCommonCovarA
      end
 end
 
+length(d::GaussianMixtureModelCommonCovarSubset) = length(param_active)
+
 
 function mean(d::GaussianMixtureModelCommonCovarSubset)
     m = copy(x)
@@ -281,7 +288,7 @@ function pdf(d::GaussianMixtureModelCommonCovarSubset, x::Vector{Float64} )
     return p
 end
 
-function pdf(d::GaussianMixtureModelCommonCovarSubset, x::Array{Float64,2} )
+function pdf(d::GaussianMixtureModelCommonCovarSubset, x::AbstractArray{Float64,2} )
     np = size(x,2)
     p = zeros(np)
     for i in 1:length(d.probs)
@@ -291,7 +298,7 @@ function pdf(d::GaussianMixtureModelCommonCovarSubset, x::Array{Float64,2} )
     return p
 end
 
-function logpdf(d::GaussianMixtureModelCommonCovarSubset, x::Vector{Float64})
+function _logpdf(d::GaussianMixtureModelCommonCovarSubset, x::Vector{Float64})
     logp = -Inf
     for i in 1:length(d.probs)
         if d.probs[i]<=0.0 continue end
@@ -301,7 +308,7 @@ function logpdf(d::GaussianMixtureModelCommonCovarSubset, x::Vector{Float64})
     return logp
 end
 
-function logpdf(d::GaussianMixtureModelCommonCovarSubset, x::Array{Float64,2})
+function _logpdf(d::GaussianMixtureModelCommonCovarSubset, x::AbstractArray{Float64,2})
     np = size(x,2)
     logp = fill(-Inf,np)
     for i in 1:length(d.probs)

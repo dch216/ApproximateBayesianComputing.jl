@@ -2,30 +2,38 @@ using ApproximateBayesianComputing
 const ABC = ApproximateBayesianComputing
 using Distributions, Random
 
-# Currently, hackishly included from ABC, but in the ABC namespace
-#include(joinpath(dirname(pathof(ApproximateBayesianComputing)),"composite.jl"))
-#include(joinpath(dirname(pathof(ApproximateBayesianComputing)),"beta_linear_transformed.jl"))
 import ApproximateBayesianComputing.CompositeDistributions.CompositeDist
 import ApproximateBayesianComputing.TransformedBetaDistributions.LinearTransformedBeta
 
 Random.seed!(1234)
 
 # Function to adjust originally proposed model parameters, so that they will be valid
-function normalize_theta!(theta::Array) 
-  @views theta[2:end]./= sum(theta[2:end])
-  theta
+function normalize_theta!(theta::Array)
+  theta[2:end]./= sum(theta[2:end])
+  return theta
 end
 
 # Set Prior for Population Parameters
-max_rate = 3.
-nbins = 13
-theta_true = vcat(max_rate*0.1,rand(nbins))
+max_rate = 3.0
+theta_true = vcat(1.0,[1.0,2.0,3.0,4.0,5.0])
 normalize_theta!(theta_true)
+nbins = length(theta_true)-1
 
-param_prior = CompositeDist(vcat(Uniform(0.0,max_rate),ContinuousDistribution[Uniform(0.0,1.0) for i in 1:nbins]))
+#param_prior = CompositeDist(vcat(Uniform(0.0,max_rate),ContinuousDistribution[Uniform(0.0,1.0) for i in 1:nbins]))
+param_prior = CompositeDist([Uniform(0.0,max_rate),Dirichlet(ones(nbins))])
 
 # Function to test if the proposed model parameter are valid
-is_valid(theta::Array) = all([minimum(param_prior.dist[i])<=theta[i]<=maximum(param_prior.dist[i]) for i in 1:length(theta)])
+function is_valid(theta::Array)
+    # Test total rate parameter from uniform distribution
+    if !(minimum(param_prior.dist[1])<=theta[1]<=maximum(param_prior.dist[1]))
+        return false
+    end
+    # Test parametrs of categorical distribution
+    if !Distributions.isprobvec(theta[2:end])
+        return false
+    end
+    return true
+end
 
 # Code to generate simulated data given array of model parameters
 num_data_default = 1000
@@ -36,26 +44,26 @@ function draw_dirchlet_multinomial_with_poisson_rate(theta::Array)
    for i in 1:n
      counts[rand(d_cat)] += 1
    end
-   counts
+   return counts
 end
 
 function gen_data(theta::Array, n::Integer = num_data_default)
    data = Array{Int64}( undef, (length(theta)-1, n) )
    for i in 1:n
-      data[:,i] = draw_dirchlet_multinomial_with_poisson_rate(theta)
+      data[:,i] .= draw_dirchlet_multinomial_with_poisson_rate(theta)
    end
-   data     
+   return data
 end
 
 function calc_mean_per_bin(data::Array{Int64,2})
    vec(mean(data,dims=2))
 end
 
-calc_dist_l1(x::Array{Float64},y::Array{Float64}) = sum(abs.(x.-y))/length(x) + abs(sum(x)-sum(y))
-calc_dist_l2(x::Array{Float64},y::Array{Float64}) = sum(abs2.(x.-y))/length(x) + abs2(sum(x)-sum(y))
+calc_dist_l1(x::Array{Float64},y::Array{Float64}) = sum(abs.(x.-y))/length(x)
+calc_dist_l2(x::Array{Float64},y::Array{Float64}) = sum(abs2.(x.-y))/length(x)
 
 
-#using Distributions 
+#using Distributions
 using SpecialFunctions
 using Statistics
 
@@ -66,13 +74,13 @@ end
 
 function trigamma_x_lt_4(x::T) where T<: Real
   n = floor(Int64,5-x)
-  z = x+n 
+  z = x+n
   val = trigamma_x_gr_4(z)
   for i in 1:n
     z -= 1
     val += 1/z^2
   end
-  val 
+  val
 end
 
 function trigamma(x::T) where T<: Real
@@ -95,14 +103,14 @@ function var_weighted(x::AbstractArray{Float64,1}, w::AbstractArray{Float64,1} )
 end
 
 function make_proposal_dist_multidim_beta(theta::AbstractArray{Float64,2}, weights::AbstractArray{Float64,1},  tau_factor::Float64; verbose::Bool = false)
-  
-  function mom_alpha(x_bar::T, v_bar::T) where T<: Real 
+
+  function mom_alpha(x_bar::T, v_bar::T) where T<: Real
     x_bar * (((x_bar * (1 - x_bar)) / v_bar) - 1)
   end
-  function mom_beta(x_bar::T, v_bar::T) where T<: Real 
+  function mom_beta(x_bar::T, v_bar::T) where T<: Real
     (1 - x_bar) * (((x_bar * (1 - x_bar)) / v_bar) - 1)
   end
-  # For algorithm, see https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=2613&context=etd 
+  # For algorithm, see https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=2613&context=etd
   function fit_beta_mle(x::AbstractArray{T,1}; tol::T = 1e-6, max_it::Int64 = 10, init_guess::AbstractArray{T,1} = Array{T}(undef,0), w::AbstractArray{T,1} = Array{T}(undef,0), verbose::Bool = false ) where T<: Real
     lnxbar =   length(w)>1 ? Statistics.mean(log.(x),AnalyticWeights(w)) : Statistics.mean(log.(x))
     ln1mxbar = length(w)>1 ? Statistics.mean(log.(1.0.-x),AnalyticWeights(w)) : Statistics.mean(log.(1.0.-x))
@@ -115,9 +123,9 @@ function make_proposal_dist_multidim_beta(theta::AbstractArray{Float64,2}, weigh
        tgab = trigamma(alpha+beta)
        G = [dgab-trigamma(alpha) tgab; tgab tgab-trigamma(beta)]
        mle_guess -= G \ [g1, g2]
-    end 
-  
-    local mle_new 
+    end
+
+    local mle_new
     if length(init_guess) != 2
        xbar = length(w)>1 ? Statistics.mean(x,AnalyticWeights(w)) : Statistics.mean(x)
        vbar = length(w)>1 ? Statistics.varm(x,xbar,AnalyticWeights(w)) : Statistics.varm(x,xbar)
@@ -146,16 +154,16 @@ function make_proposal_dist_multidim_beta(theta::AbstractArray{Float64,2}, weigh
     end
     return mle_new
   end
-  function make_beta(x::AbstractArray{T,1}, w::AbstractArray{T,1}; 
-              mean::T = Statistics.mean(x,AnalyticWeights(w)), 
-              var::T = Statistics.varm(x,xbar,AnalyticWeights(w)), tau_factor::T=one(T) ) where T<:Real
-       alpha_beta = (var < mean*(1.0-mean)) ? [mom_alpha(mean, var), mom_beta(mean,var)] : ones(T,2)
+  function make_beta(x::AbstractArray{T,1}, w::AbstractArray{T,1};
+              xmean::T = Statistics.mean(x,AnalyticWeights(w)),
+              xvar::T = Statistics.varm(x,xmean,AnalyticWeights(w)), tau_factor::T=one(T) ) where T<:Real
+       alpha_beta = (xvar < xmean*(1.0-xmean)) ? [mom_alpha(xmean, xvar), mom_beta(xmean,xvar)] : ones(T,2)
        if any(alpha_beta.<=zero(T))
           alpha_beta = fit_beta_mle(x, w=w, init_guess=alpha_beta, verbose=true)
        end
        if any(alpha_beta.<=zero(T))
           alpha_beta = ones(T,2)
-       else 
+       else
           if minimum(alpha_beta)>1.5*tau_factor && sum(alpha_beta)>=20.0*tau_factor
              alpha_beta ./= tau_factor
           end
@@ -163,22 +171,22 @@ function make_proposal_dist_multidim_beta(theta::AbstractArray{Float64,2}, weigh
        Beta(alpha_beta[1], alpha_beta[2])
   end
   function make_beta_transformed(x::AbstractArray{T,1}, w::AbstractArray{T,1}; xmin::T=zero(T), xmax::T=one(T),
-              mean::T = Statistics.mean(x,AnalyticWeights(w)), 
-              var::T = Statistics.varm(x,xbar,AnalyticWeights(w)), tau_factor::T=one(T) ) where T<:Real
-       alpha_beta = (var < mean*(1.0-mean)) ? [mom_alpha(mean, var), mom_beta(mean,var)] : ones(T,2)
+              xmean::T = Statistics.mean(x,AnalyticWeights(w)),
+              xvar::T = Statistics.varm(x,xmean,AnalyticWeights(w)), tau_factor::T=one(T) ) where T<:Real
+       alpha_beta = (xvar < xmean*(1.0-xmean)) ? [mom_alpha(xmean, xvar), mom_beta(xmean,xvar)] : ones(T,2)
        if any(alpha_beta.<=zero(T))
           alpha_beta = fit_beta_mle(x, w=w, init_guess=alpha_beta, verbose=true)
        end
        if any(alpha_beta.<=zero(T))
           alpha_beta = ones(T,2)
-       else 
+       else
           if minimum(alpha_beta)>1.5*tau_factor && sum(alpha_beta)>=20.0*tau_factor
              alpha_beta ./= tau_factor
           end
        end
        LinearTransformedBeta(alpha_beta[1], alpha_beta[2], xmin=xmin, xmax=xmax)
   end
- 
+
   theta_mean =  sum(theta.*weights',dims=2) # weighted mean for parameters
   theta_var = ABC.var_weighted(theta'.-theta_mean',weights)  # scaled, weighted covar for parameters
   tau_factor_indiv = fill(tau_factor,length(theta_var))
@@ -195,7 +203,7 @@ function make_proposal_dist_multidim_beta(theta::AbstractArray{Float64,2}, weigh
     tau_factor_indiv[i] = tau_factor*var_ratio
   end
   if verbose
-     flush(stdout)
+     flush(Base.stdout)
   end
   #=
   println("mean= ",theta_mean)
@@ -204,10 +212,10 @@ function make_proposal_dist_multidim_beta(theta::AbstractArray{Float64,2}, weigh
      println("a= ",alpha(theta_mean[i],tau_factor*theta_var[i]), "  b= ",beta(theta_mean[i],tau_factor*theta_var[i]))
   end
   =#
-  
+
   dist = ApproximateBayesianComputing.CompositeDistributions.CompositeDist( vcat(
-         make_beta_transformed(theta[1,:], weights, xmin=0.0, xmax=max_rate, mean=theta_mean[1]/max_rate, var=theta_var[1]/max_rate^2, tau_factor=tau_factor_indiv[1]), 
-         ContinuousDistribution[ make_beta(theta[i,:], weights, mean=theta_mean[i], var=theta_var[i], tau_factor=tau_factor_indiv[i]) for i in 2:size(theta,1) ] ))
+         make_beta_transformed(theta[1,:]./max_rate, weights, xmin=0.0, xmax=max_rate, xmean=theta_mean[1]/max_rate, xvar=theta_var[1]/max_rate^2, tau_factor=tau_factor_indiv[1]),
+         ContinuousDistribution[ make_beta(theta[i,:], weights, xmean=theta_mean[i], xvar=theta_var[i], tau_factor=tau_factor_indiv[i]) for i in 2:size(theta,1) ] ))
 
 end
 
@@ -218,13 +226,22 @@ end
 
 
 # Tell ABC what it needs to know for a simulation
-abc_plan = abc_pmc_plan_type(gen_data,calc_mean_per_bin,calc_dist_l1, param_prior; is_valid=is_valid,normalize=normalize_theta!,make_proposal_dist=make_proposal_dist_multidim_beta,epsilon_reduction_factor=0.501,tau_factor=1.1,target_epsilon=0.00001*nbins,num_max_attempt=1000);
+abc_plan = abc_pmc_plan_type(gen_data,calc_mean_per_bin,calc_dist_l1, param_prior;
+                is_valid=is_valid,normalize=normalize_theta!,
+                make_proposal_dist=make_proposal_dist_multidim_beta,
+                epsilon_init=0.6, epsilon_reduction_factor=0.75001,
+                tau_factor=1.2,target_epsilon=0.00001*nbins,
+                num_part=100,num_max_attempt=100
+                );
 
 # Generate "true/observed data" and summary statistics
 data_true = abc_plan.gen_data(theta_true)
 ss_true = abc_plan.calc_summary_stats(data_true)
-#println("theta= ",theta_true," ss= ",ss_true, " d= ", 0.)
+println("theta_true = ",theta_true," ss_true = ",ss_true, " d= 0")
+dist_draws_from_true = [abc_plan.calc_dist(ss_true,abc_plan.calc_summary_stats(abc_plan.gen_data(theta_true))) for i in 1:100]
+println("dist from true param: mean = ", mean(dist_draws_from_true), " std = ", std(dist_draws_from_true))
+
+abc_plan.target_epsilon = mean(dist_draws_from_true)-1*std(dist_draws_from_true)
 
 # Run ABC simulation
 @time pop_out = run_abc(abc_plan,ss_true;verbose=true);
-
